@@ -9,11 +9,25 @@ import commentsRouter from './router/comments.Routes';
 
 const app = express();  
 
-// CORS CONFIG — Allow your Vite dev server
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://library-coral-iota.vercel.app"
+];
+
 app.use(cors({
-  origin: "http://localhost:5173",  // Vite default port
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like Postman)
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
   credentials: true,
 }));
+
 
 app.use(express.json());
 
