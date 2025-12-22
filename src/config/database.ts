@@ -4,34 +4,31 @@ import { Pool } from 'pg';
 
 dotenv.config();
 
-const {
-  PG_HOST,
-  PG_PORT='5432',
-  PG_DATABASE,
-  PG_USER,
-  PG_PASSWORD,
-} = process.env;
+const databaseUrl = process.env.DATABASE_URL;
 
-if (!PG_USER || !PG_PASSWORD) {
-  throw new Error('PostgreSQL credentials are missing in .env');
+if (!databaseUrl) {
+  throw new Error('DATABASE_URL is not set in environment variables');
 }
 
+// The 'pg' library supports connection strings directly
 const pool = new Pool({
-  host: PG_HOST,
-  port: parseInt(PG_PORT),
-  database: PG_DATABASE,
-  user: PG_USER,
-  password: PG_PASSWORD,
-  max: 50,
+  connectionString: databaseUrl,
+  // Optional: Recommended settings for production (Render, etc.)
+  max: 20,                    // Reduce from 50 → Render free/paid tiers have connection limits
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
+  // Render requires SSL in production but rejects self-signed certs
+  ssl: process.env.NODE_ENV === 'production' 
+    ? { rejectUnauthorized: false } 
+    : false,
 });
 
 export const getPool = async () => {
   return pool;
 };
 
-// Optional: test connection on startup
+// Handle unexpected errors on idle clients
 pool.on('error', (err) => {
   console.error('Unexpected error on idle PostgreSQL client', err);
+  process.exit(-1);
 });
