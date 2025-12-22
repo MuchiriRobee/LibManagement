@@ -1,30 +1,14 @@
-import sql from 'mssql';
-import { getPool } from '../config/database';
-import { Book } from '../types/books.Interface';
+// src/repositories/books.Repository.ts
+import { getPool } from "../config/database";
+import { Book } from "../types/books.Interface";
 
 export const findAll = async (filters: {
   title?: string;
   author?: string;
   category_id?: number;
-}): Promise<any[]> => {  // Return richer object with genre name and availability
+} = {}): Promise<any[]> => {
   const pool = await getPool();
-  const request = pool.request();
-
-  let whereClause = 'WHERE 1=1';
-  if (filters.title) {
-    whereClause += ' AND b.title LIKE @title';
-    request.input('title', sql.NVarChar, `%${filters.title}%`);
-  }
-  if (filters.author) {
-    whereClause += ' AND b.author LIKE @author';
-    request.input('author', sql.NVarChar, `%${filters.author}%`);
-  }
-  if (filters.category_id !== undefined) {
-    whereClause += ' AND b.category_id = @category_id';
-    request.input('category_id', sql.Int, filters.category_id);
-  }
-
-  const result = await request.query(`
+  let query = `
     SELECT 
       b.book_id,
       b.title,
@@ -33,54 +17,75 @@ export const findAll = async (filters: {
       c.name AS genre,
       b.publication_year,
       b.stock_quantity,
-      ISNULL(borrowed.active_borrows, 0) AS active_borrows,
-      (b.stock_quantity - ISNULL(borrowed.active_borrows, 0)) AS available_copies,
+      COALESCE(borrowed.active_borrows, 0) AS active_borrows,
+      (b.stock_quantity - COALESCE(borrowed.active_borrows, 0)) AS available_copies,
       b.created_at,
       b.updated_at
-    FROM Books b
-    LEFT JOIN Categories c ON b.category_id = c.category_id
+    FROM books b
+    LEFT JOIN categories c ON b.category_id = c.category_id
     LEFT JOIN (
       SELECT book_id, COUNT(*) AS active_borrows
-      FROM BorrowRecords
+      FROM borrowrecords
       WHERE status IN ('Borrowed', 'Overdue')
       GROUP BY book_id
     ) borrowed ON b.book_id = borrowed.book_id
-    ${whereClause}
-    ORDER BY b.title
-  `);
+  `;
 
-  return result.recordset;
+  const params: any[] = [];
+  let paramIndex = 1;
+
+  if (filters.title) {
+    query += ` WHERE b.title ILIKE $${paramIndex}`;
+    params.push(`%${filters.title}%`);
+    paramIndex++;
+  }
+  if (filters.author) {
+    query += filters.title ? ` AND` : ` WHERE`;
+    query += ` b.author ILIKE $${paramIndex}`;
+    params.push(`%${filters.author}%`);
+    paramIndex++;
+  }
+  if (filters.category_id !== undefined) {
+    query += (filters.title || filters.author) ? ` AND` : ` WHERE`;
+    query += ` b.category_id = $${paramIndex}`;
+    params.push(filters.category_id);
+  }
+
+  query += " ORDER BY b.title";
+
+  const result = await pool.query(query, params);
+  return result.rows;
 };
 
 export const findById = async (id: number): Promise<any | null> => {
   const pool = await getPool();
-  const result = await pool.request()
-    .input('id', sql.Int, id)
-    .query(`
-      SELECT 
-        b.book_id,
-        b.title,
-        b.author,
-        b.category_id,
-        c.name AS genre,
-        b.publication_year,
-        b.stock_quantity,
-        ISNULL(borrowed.active_borrows, 0) AS active_borrows,
-        (b.stock_quantity - ISNULL(borrowed.active_borrows, 0)) AS available_copies,
-        b.created_at,
-        b.updated_at
-      FROM Books b
-      LEFT JOIN Categories c ON b.category_id = c.category_id
-      LEFT JOIN (
-        SELECT book_id, COUNT(*) AS active_borrows
-        FROM BorrowRecords
-        WHERE status IN ('Borrowed', 'Overdue')
-        GROUP BY book_id
-      ) borrowed ON b.book_id = borrowed.book_id
-      WHERE b.book_id = @id
-    `);
-
-  return result.recordset[0] || null;
+  const result = await pool.query(
+    `
+    SELECT 
+      b.book_id,
+      b.title,
+      b.author,
+      b.category_id,
+      c.name AS genre,
+      b.publication_year,
+      b.stock_quantity,
+      COALESCE(borrowed.active_borrows, 0) AS active_borrows,
+      (b.stock_quantity - COALESCE(borrowed.active_borrows, 0)) AS available_copies,
+      b.created_at,
+      b.updated_at
+    FROM books b
+    LEFT JOIN categories c ON b.category_id = c.category_id
+    LEFT JOIN (
+      SELECT book_id, COUNT(*) AS active_borrows
+      FROM borrowrecords
+      WHERE status IN ('Borrowed', 'Overdue')
+      GROUP BY book_id
+    ) borrowed ON b.book_id = borrowed.book_id
+    WHERE b.book_id = $1
+  `,
+    [id]
+  );
+  return result.rows[0] || null;
 };
 
 export const create = async (
@@ -91,19 +96,15 @@ export const create = async (
   stock_quantity: number = 1
 ): Promise<Book> => {
   const pool = await getPool();
-  const result = await pool
-    .request()
-    .input('title', sql.NVarChar(100), title)
-    .input('author', sql.NVarChar(100), author)
-    .input('category_id', sql.Int, category_id)
-    .input('publication_year', sql.Int, publication_year ?? null)
-    .input('stock_quantity', sql.Int, stock_quantity)
-    .query(`
-      INSERT INTO Books (title, author, category_id, publication_year, stock_quantity)
-      OUTPUT INSERTED.*
-      VALUES (@title, @author, @category_id, @publication_year, @stock_quantity)
-    `);
-  return result.recordset[0];
+  const result = await pool.query(
+    `
+    INSERT INTO books (title, author, category_id, publication_year, stock_quantity)
+    VALUES ($1, $2, $3, $4, $5)
+    RETURNING *
+  `,
+    [title, author, category_id, publication_year ?? null, stock_quantity]
+  );
+  return result.rows[0];
 };
 
 export const update = async (
@@ -115,61 +116,71 @@ export const update = async (
   stock_quantity?: number
 ): Promise<Book | null> => {
   const pool = await getPool();
-  const request = pool.request().input('id', sql.Int, id);
-  let setClause = 'updated_at = GETDATE()';
+  const updates: string[] = [];
+  const values: any[] = [];
+  let paramIndex = 1;
+
   if (title !== undefined) {
-    setClause += ', title = @title';
-    request.input('title', sql.NVarChar(100), title);
+    updates.push(`title = $${paramIndex}`);
+    values.push(title);
+    paramIndex++;
   }
   if (author !== undefined) {
-    setClause += ', author = @author';
-    request.input('author', sql.NVarChar(100), author);
+    updates.push(`author = $${paramIndex}`);
+    values.push(author);
+    paramIndex++;
   }
   if (category_id !== undefined) {
-    setClause += ', category_id = @category_id';
-    request.input('category_id', sql.Int, category_id ?? null);
+    updates.push(`category_id = $${paramIndex}`);
+    values.push(category_id);
+    paramIndex++;
   }
   if (publication_year !== undefined) {
-    setClause += ', publication_year = @publication_year';
-    request.input('publication_year', sql.Int, publication_year);
+    updates.push(`publication_year = $${paramIndex}`);
+    values.push(publication_year);
+    paramIndex++;
   }
   if (stock_quantity !== undefined) {
-    setClause += ', stock_quantity = @stock_quantity';
-    request.input('stock_quantity', sql.Int, stock_quantity);
+    updates.push(`stock_quantity = $${paramIndex}`);
+    values.push(stock_quantity);
+    paramIndex++;
   }
 
-  const result = await request.query(`
-    UPDATE Books
-    SET ${setClause}
-    OUTPUT INSERTED.*
-    WHERE book_id = @id
-  `);
-  return result.recordset[0] ?? null;
+  if (updates.length === 0) {
+    return await findById(id);
+  }
+
+  updates.push(`updated_at = CURRENT_TIMESTAMP`);
+  values.push(id); // for WHERE
+
+  const query = `
+    UPDATE books
+    SET ${updates.join(", ")}
+    WHERE book_id = $${paramIndex}
+    RETURNING *
+  `;
+
+  const result = await pool.query(query, values);
+  return result.rows[0] || null;
 };
 
 export const remove = async (id: number): Promise<boolean> => {
   const pool = await getPool();
-  const result = await pool
-    .request()
-    .input('id', sql.Int, id)
-    .query(`DELETE FROM Books WHERE book_id = @id`);
-  return result.rowsAffected[0] > 0;
+  const result = await pool.query("DELETE FROM books WHERE book_id = $1", [id]);
+  return (result.rowCount ?? 0) > 0;
 };
 
 export const categoryExists = async (categoryId: number): Promise<boolean> => {
   const pool = await getPool();
-  const result = await pool
-    .request()
-    .input('categoryId', sql.Int, categoryId)
-    .query(`SELECT 1 FROM Categories WHERE category_id = @categoryId`);
-  return result.recordset.length > 0;
+  const result = await pool.query("SELECT 1 FROM categories WHERE category_id = $1", [categoryId]);
+  return (result.rowCount ?? 0) > 0;
 };
 
 export const countBorrowRecordsForBook = async (bookId: number): Promise<number> => {
   const pool = await getPool();
-  const result = await pool
-    .request()
-    .input('bookId', sql.Int, bookId)
-    .query(`SELECT COUNT(*) AS cnt FROM BorrowRecords WHERE book_id = @bookId AND status IN ('Borrowed', 'Overdue')`);
-  return result.recordset[0].cnt;
+  const result = await pool.query(
+    `SELECT COUNT(*) AS cnt FROM borrowrecords WHERE book_id = $1 AND status IN ('Borrowed', 'Overdue')`,
+    [bookId]
+  );
+  return parseInt(result.rows[0]?.cnt || "0", 10);
 };

@@ -2,9 +2,9 @@
 import { getPool } from "../config/database";
 import { Comment, NewComment, UpdateComment } from "../types/comments.Interface";
 
-export const findAll = async (): Promise<any[]> => {  // Return enriched Comment with user_name, book_title
+export const findAll = async (): Promise<any[]> => {
   const pool = await getPool();
-  const result = await pool.request().query(`
+  const result = await pool.query(`
     SELECT 
       c.comment_id, 
       c.user_id, 
@@ -14,102 +14,93 @@ export const findAll = async (): Promise<any[]> => {  // Return enriched Comment
       c.rating, 
       c.comment, 
       c.created_at 
-    FROM Comments c
-    INNER JOIN Users u ON c.user_id = u.user_id
-    INNER JOIN Books b ON c.book_id = b.book_id
+    FROM comments c
+    INNER JOIN users u ON c.user_id = u.user_id
+    INNER JOIN books b ON c.book_id = b.book_id
     ORDER BY c.created_at DESC
   `);
-  return result.recordset;
+  return result.rows;
 };
 
 export const findByBookId = async (book_id: number): Promise<any[]> => {
   const pool = await getPool();
-  const result = await pool
-    .request()
-    .input("book_id", book_id)
-    .query(`
-      SELECT 
-        c.comment_id, 
-        c.user_id, 
-        u.username AS user_name,
-        c.book_id, 
-        b.title AS book_title,
-        c.rating, 
-        c.comment, 
-        c.created_at 
-      FROM Comments c
-      INNER JOIN Users u ON c.user_id = u.user_id
-      INNER JOIN Books b ON c.book_id = b.book_id
-      WHERE c.book_id = @book_id 
-      ORDER BY c.created_at DESC
-    `);
-  return result.recordset;
+  const result = await pool.query(
+    `
+    SELECT 
+      c.comment_id, 
+      c.user_id, 
+      u.username AS user_name,
+      c.book_id, 
+      b.title AS book_title,
+      c.rating, 
+      c.comment, 
+      c.created_at 
+    FROM comments c
+    INNER JOIN users u ON c.user_id = u.user_id
+    INNER JOIN books b ON c.book_id = b.book_id
+    WHERE c.book_id = $1 
+    ORDER BY c.created_at DESC
+  `,
+    [book_id]
+  );
+  return result.rows;
 };
 
 export const findById = async (id: number): Promise<any | null> => {
   const pool = await getPool();
-  const result = await pool
-    .request()
-    .input("id", id)
-    .query(`
-      SELECT 
-        c.comment_id, 
-        c.user_id, 
-        u.username AS user_name,
-        c.book_id, 
-        b.title AS book_title,
-        c.rating, 
-        c.comment, 
-        c.created_at 
-      FROM Comments c
-      INNER JOIN Users u ON c.user_id = u.user_id
-      INNER JOIN Books b ON c.book_id = b.book_id
-      WHERE c.comment_id = @id
-    `);
-  return result.recordset[0] || null;
+  const result = await pool.query(
+    `
+    SELECT 
+      c.comment_id, 
+      c.user_id, 
+      u.username AS user_name,
+      c.book_id, 
+      b.title AS book_title,
+      c.rating, 
+      c.comment, 
+      c.created_at 
+    FROM comments c
+    INNER JOIN users u ON c.user_id = u.user_id
+    INNER JOIN books b ON c.book_id = b.book_id
+    WHERE c.comment_id = $1
+  `,
+    [id]
+  );
+  return result.rows[0] || null;
 };
 
 export const create = async (data: NewComment): Promise<Comment> => {
   const pool = await getPool();
-  const result = await pool
-    .request()
-    .input("user_id", data.user_id)
-    .input("book_id", data.book_id)
-    .input("rating", data.rating)
-    .input("comment", data.comment || null)
-    .query(`
-      INSERT INTO Comments (user_id, book_id, rating, comment)
-      OUTPUT INSERTED.*
-      VALUES (@user_id, @book_id, @rating, @comment)
-    `);
-  return result.recordset[0];
+  const result = await pool.query(
+    `
+    INSERT INTO comments (user_id, book_id, rating, comment)
+    VALUES ($1, $2, $3, $4)
+    RETURNING *
+  `,
+    [data.user_id, data.book_id, data.rating, data.comment || null]
+  );
+  return result.rows[0];
 };
 
 export const update = async (id: number, data: UpdateComment): Promise<Comment | null> => {
   const pool = await getPool();
+  const result = await pool.query(
+    `
+    UPDATE comments
+    SET 
+      rating = COALESCE($1, rating),
+      comment = COALESCE($2, comment),
+      updated_at = CURRENT_TIMESTAMP
+    WHERE comment_id = $3
+    RETURNING *
+  `,
+    [data.rating ?? null, data.comment ?? null, id]
+  );
 
-  const result = await pool
-    .request()
-    .input("id", id)
-    .input("rating", data.rating ?? null)
-    .input("comment", data.comment ?? null)
-    .query(`
-      UPDATE Comments
-      SET 
-        rating = COALESCE(@rating, rating),
-        comment = COALESCE(@comment, comment),
-        updated_at = GETDATE()
-      OUTPUT INSERTED.*
-      WHERE comment_id = @id
-    `);
-
-  return result.recordset[0] ?? null;
+  return result.rows[0] || null;
 };
 
 export const remove = async (id: number): Promise<void> => {
   const pool = await getPool();
-  await pool
-    .request()
-    .input("id", id)
-    .query("DELETE FROM Comments WHERE comment_id = @id");
+  await pool.query("DELETE FROM comments WHERE comment_id = $1", [id]);
 };
