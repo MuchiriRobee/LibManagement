@@ -12,6 +12,7 @@ userRouter.post("/users/login", validateLoginUser, userController.userLogin);
 userRouter.post("/users/register", validateUser, userController.createUser);
 
 // Protected + Admin only
+userRouter.get("/users/count", isAuthenticated, authorize, userController.getUsersCount);
 userRouter.get("/users", isAuthenticated, authorize, userController.getAllUsers);
 userRouter.get("/users/admins", isAuthenticated, authorize, userController.getAdmins);
 userRouter.get("/users/members", isAuthenticated, authorize, userController.getMembers);

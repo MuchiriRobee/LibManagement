@@ -109,3 +109,12 @@ export const deleteUser = async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
+
+export const getUsersCount = async (req: Request, res: Response) => {
+  try {
+    const count = await userService.getTotalUsersCount();
+    return res.status(200).json({ success: true, count });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};

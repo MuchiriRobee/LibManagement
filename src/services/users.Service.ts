@@ -98,3 +98,7 @@ export const deleteUser = async (id: number): Promise<void> => {
   if (!user) throw new Error("User not found");
   await userRepo.remove(id);
 };
+
+export const getTotalUsersCount = async (): Promise<number> => {
+  return await userRepo.countAllUsers();
+};

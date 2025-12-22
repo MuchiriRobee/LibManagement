@@ -130,11 +130,15 @@ export const updateUserRole = async (id: number, role: "Admin" | "Member"): Prom
     return null;
   }
 
-  // Re-fetch full user with borrow count
   return await findById(id);
 };
 
 export const remove = async (id: number): Promise<void> => {
   const pool = await getPool();
   await pool.query("DELETE FROM users WHERE user_id = $1", [id]);
+};
+export const countAllUsers = async (): Promise<number> => {
+  const pool = await getPool();
+  const result = await pool.query("SELECT COUNT(*) AS count FROM users");
+  return parseInt(result.rows[0].count, 10);
 };
