@@ -79,6 +79,36 @@ export const getUserByEmail = async (req: Request, res: Response) => {
   }
 };
 
+export const updateProfile = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id; // set by isAuthenticated middleware
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const { username, email, oldPassword, newPassword } = req.body;
+
+    if (!username && !email && !newPassword) {
+      return res.status(400).json({ success: false, message: "No changes provided" });
+    }
+
+    const result = await userService.updateProfile(userId, {
+      username,
+      email,
+      oldPassword,
+      newPassword,
+    });
+
+    if (!result.success) {
+      return res.status(result.status || 400).json(result);
+    }
+
+    return res.status(200).json(result);
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message || "Server error" });
+  }
+};
+
 export const updateUserRole = async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id);

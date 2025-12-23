@@ -18,6 +18,7 @@ userRouter.get("/users/admins", isAuthenticated, authorize, userController.getAd
 userRouter.get("/users/members", isAuthenticated, authorize, userController.getMembers);
 userRouter.get("/users/:id", isAuthenticated, authorize, userController.getUserById);
 userRouter.get("/users/email", isAuthenticated, userController.getUserByEmail); // ?email=...
+userRouter.put("/users/profile", isAuthenticated, userController.updateProfile);
 userRouter.put("/users/:id", isAuthenticated, authorize, userController.updateUserRole);
 userRouter.delete("/users/:id", isAuthenticated, authorize, userController.deleteUser);
 
