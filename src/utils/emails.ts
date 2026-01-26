@@ -1,15 +1,54 @@
 // src/utils/email.ts
-import nodemailer from 'nodemailer';
+// Using MailerSend API (HTTP) - works on Render free tier and locally
 
-const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST,
-  port: Number(process.env.EMAIL_PORT),
-  secure: false, // true for 465, false for other ports
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+interface EmailPayload {
+  from: {
+    email: string;
+    name: string;
+  };
+  to: Array<{ email: string }>;
+  subject: string;
+  html: string;
+  text?: string; // optional plain-text fallback
+}
+
+const sendMailersendEmail = async (payload: EmailPayload) => {
+  const apiKey = process.env.MAILERSEND_API_KEY;
+
+  if (!apiKey) {
+    console.error('Missing MAILERSEND_API_KEY');
+    throw new Error('Email service not configured');
+  }
+
+  const response = await fetch('https://api.mailersend.com/v1/email', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    let errorDetail;
+    try {
+      errorDetail = await response.json();
+    } catch {
+      errorDetail = await response.text();
+    }
+
+    console.error('MailerSend API error:', {
+      status: response.status,
+      statusText: response.statusText,
+      detail: errorDetail,
+    });
+
+    throw new Error(`Failed to send email: ${response.status} ${response.statusText}`);
+  }
+
+  console.log(`Email sent successfully to ${payload.to[0].email}`);
+  return true;
+};
 
 export const sendVerificationEmail = async (to: string, token: string) => {
   const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
@@ -33,12 +72,19 @@ export const sendVerificationEmail = async (to: string, token: string) => {
     </div>
   `;
 
-  await transporter.sendMail({
-    from: `"Library Portal" <${process.env.EMAIL_USER}>`,
-    to,
+  const payload: EmailPayload = {
+    from: {
+      email: process.env.MAILERSEND_FROM_EMAIL!,
+      name: process.env.MAILERSEND_FROM_NAME || 'Library Portal',
+    },
+    to: [{ email: to }],
     subject: 'Verify Your Library Portal Account',
     html,
-  });
+    // optional plain text version
+    text: `Verify your email: ${verificationUrl}\n\nThis link expires in 24 hours.`,
+  };
+
+  return sendMailersendEmail(payload);
 };
 
 export const sendPasswordResetEmail = async (to: string, token: string) => {
@@ -63,10 +109,16 @@ export const sendPasswordResetEmail = async (to: string, token: string) => {
     </div>
   `;
 
-  await transporter.sendMail({
-    from: `"Library Portal" <${process.env.EMAIL_USER}>`,
-    to,
+  const payload: EmailPayload = {
+    from: {
+      email: process.env.MAILERSEND_FROM_EMAIL!,
+      name: process.env.MAILERSEND_FROM_NAME || 'Library Portal',
+    },
+    to: [{ email: to }],
     subject: 'Reset Your Library Portal Password',
     html,
-  });
+    text: `Reset your password: ${resetUrl}\n\nThis link expires in 1 hour.`,
+  };
+
+  return sendMailersendEmail(payload);
 };
