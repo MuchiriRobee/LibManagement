@@ -3,7 +3,9 @@ import * as userRepo from "../repositories/user.Repository";
 import { NewUser, LoginUser, User, updateUser } from "../types/users.types";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-
+import crypto from 'crypto';
+import { sendVerificationEmail, sendPasswordResetEmail } from '../utils/emails';
+import { getPool } from "../config/database";
 const JWT_SECRET = process.env.JWT_SECRET || "fallback-secret-change-in-prod";
 
 interface ProfileUpdateData {
@@ -20,21 +22,141 @@ export const registerUser = async (userData: NewUser) => {
   }
 
   const hashedPassword = await bcrypt.hash(userData.password, 12);
-  const newUser: NewUser = {
-    ...userData,
-    password: hashedPassword,
+
+  // Generate secure token
+  const verificationToken = crypto.randomBytes(32).toString('hex');
+  const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+  const newUser = {
+    username: userData.username,
+    email: userData.email,
+    password_hash: hashedPassword,   // note renamed field
     role: userData.role || "Member",
     created_at: new Date(),
+    is_verified: false,
+    verification_token: verificationToken,
+    verification_expires: verificationExpires,
   };
 
-  const createdUser = await userRepo.createUser(newUser);
-  delete (createdUser as any).password_hash;
+  const created = await userRepo.createUser(newUser);
+
+  // Send email (fire-and-forget in production → use queue)
+  sendVerificationEmail(created.email, verificationToken).catch(err => {
+    console.error("Email send failed:", err);
+  });
+
+  const safeUser = { ...created };
+  delete (safeUser as any).password_hash;
+  delete (safeUser as any).verification_token;     // never return token
+  delete (safeUser as any).verification_expires;
 
   return {
     success: true,
-    message: "User registered successfully",
-    data: createdUser,
+    message: "Registration successful! Please check your email to verify your account.",
+    data: safeUser,
   };
+};
+
+export const verifyEmail = async (token: string) => {
+  console.log("[verifyEmail] Received token:", token);
+
+  const user = await userRepo.findByVerificationToken(token);
+
+  if (user) {
+    if (user.is_verified) {
+      console.log("[verifyEmail] Already verified user:", user.user_id);
+      return {
+        success: true,
+        message: "Your email is already verified. You can log in now.",
+      };
+    }
+
+    console.log("[verifyEmail] Verifying user:", user.user_id);
+    await userRepo.markEmailVerified(user.user_id);
+    return {
+      success: true,
+      message: "Email verified successfully! You can now log in.",
+    };
+  }
+
+  // No match → check if token was ever used (optional but nice)
+  const pool = await getPool()
+  const used = await pool.query(
+    `SELECT user_id FROM users WHERE verification_token = $1 AND is_verified = TRUE`,
+    [token]
+  );
+
+if ((used.rowCount ?? 0) > 0) {
+    console.log("[verifyEmail] Token was already used");
+    return {
+      success: true,
+      message: "This verification link has already been used. Your email is verified.",
+    };
+  }
+
+  console.log("[verifyEmail] No matching record found");
+  return {
+    success: false,
+    message: "Invalid or expired verification link.",
+  };
+};
+
+export const resendVerification = async (email: string) => {
+  const user = await userRepo.findByEmail(email);
+  if (!user) {
+    return { success: true }; // fake success to prevent enumeration
+  }
+
+  if (user.is_verified) {
+    return { success: false, message: "Email is already verified" };
+  }
+
+  const token = crypto.randomBytes(32).toString('hex');
+  const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+   const pool = await getPool();     // now it's Pool
+   await pool.query(
+    `UPDATE users SET verification_token = $1, verification_expires = $2 WHERE user_id = $3`,
+    [token, expires, user.user_id]
+  );
+
+  await sendVerificationEmail(email, token);
+
+  return { success: true, message: "Verification email resent" };
+};
+
+export const requestPasswordReset = async (email: string) => {
+  const user = await userRepo.findByEmail(email);
+  if (!user) {
+    // Still return success to prevent email enumeration
+    return { success: true, message: "If the email exists, a reset link has been sent." };
+  }
+
+  const resetToken = crypto.randomBytes(32).toString('hex');
+  const expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+  await userRepo.setResetToken(user.user_id, resetToken, expires);
+
+  sendPasswordResetEmail(email, resetToken).catch(console.error);
+
+  return { success: true, message: "If the email exists, a reset link has been sent." };
+};
+
+export const resetPassword = async (token: string, newPassword: string) => {
+  if (newPassword.length < 6) {
+    return { success: false, message: "Password must be at least 6 characters" };
+  }
+
+  const user = await userRepo.findByResetToken(token);
+  if (!user) {
+    return { success: false, message: "Invalid or expired reset token" };
+  }
+
+  const hashed = await bcrypt.hash(newPassword, 12);
+  await userRepo.updateProfile(user.user_id, { password_hash: hashed });
+  await userRepo.clearResetToken(user.user_id);
+
+  return { success: true, message: "Password reset successfully. Please log in." };
 };
 
 export const loginUser = async (credentials: LoginUser) => {

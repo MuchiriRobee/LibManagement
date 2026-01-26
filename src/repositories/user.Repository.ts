@@ -102,18 +102,95 @@ export const findByEmail = async (email: string): Promise<User | null> => {
   );
   return result.rows[0] || null;
 };
-
-export const createUser = async (user: NewUser): Promise<User> => {
+export const createUser = async (user: {
+  username: string;
+  email: string;
+  password_hash: string;     // renamed for clarity
+  role: string;
+  created_at: Date;
+  is_verified: boolean;
+  verification_token?: string | null;
+  verification_expires?: Date | null;
+}): Promise<User> => {
   const pool = await getPool();
   const result = await pool.query(
     `
-    INSERT INTO users (username, email, password_hash, role, created_at)
-    VALUES ($1, $2, $3, $4, $5)
-    RETURNING *
-  `,
-    [user.username, user.email, user.password, user.role, user.created_at]
+    INSERT INTO users (
+      username, email, password_hash, role, created_at,
+      is_verified, verification_token, verification_expires
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    RETURNING 
+      user_id, username, email, role, created_at, updated_at,
+      is_verified, verification_token, verification_expires
+    `,
+    [
+      user.username,
+      user.email,
+      user.password_hash,
+      user.role,
+      user.created_at,
+      user.is_verified,
+      user.verification_token || null,
+      user.verification_expires || null,
+    ]
   );
   return result.rows[0];
+};
+
+export const findByVerificationToken = async (token: string): Promise<User | null> => {
+  const pool = await getPool();
+  const result = await pool.query(
+    `
+    SELECT 
+      user_id, username, email, role, created_at, updated_at,
+      is_verified, password_hash
+    FROM users 
+    WHERE verification_token = $1 
+      AND (
+        verification_expires > NOW() 
+        OR is_verified = TRUE  -- allow already verified (idempotent)
+      )
+    `,
+    [token]
+  );
+  return result.rows[0] || null;
+};
+
+export const markEmailVerified = async (userId: number): Promise<boolean> => {
+  const pool = await getPool();
+  const result = await pool.query(
+    `UPDATE users SET is_verified = TRUE, verification_token = NULL, verification_expires = NULL, updated_at = NOW() WHERE user_id = $1`,
+    [userId]
+  );
+  return result.rows[0] || null;
+};
+
+export const setResetToken = async (userId: number, token: string, expires: Date): Promise<boolean> => {
+  const pool = await getPool();
+  const result = await pool.query(
+    `UPDATE users SET reset_token = $1, reset_expires = $2, updated_at = NOW() WHERE user_id = $3`,
+    [token, expires, userId]
+  );
+  return result.rows[0] || null;
+};
+
+export const findByResetToken = async (token: string): Promise<User | null> => {
+  const pool = await getPool();
+  const result = await pool.query(
+    `SELECT * FROM users WHERE reset_token = $1 AND reset_expires > NOW()`,
+    [token]
+  );
+  return result.rows[0] || null;
+};
+
+export const clearResetToken = async (userId: number): Promise<boolean> => {
+  const pool = await getPool();
+  const result = await pool.query(
+    `UPDATE users SET reset_token = NULL, reset_expires = NULL, updated_at = NOW() WHERE user_id = $1`,
+    [userId]
+  );
+  return result.rows[0] || null;
 };
 
 export const updateUserRole = async (id: number, role: "Admin" | "Member"): Promise<User | null> => {

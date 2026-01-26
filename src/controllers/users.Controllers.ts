@@ -24,6 +24,58 @@ export const userLogin = async (req: Request, res: Response) => {
   }
 };
 
+export const verifyEmail = async (req: Request, res: Response) => {
+  try {
+    const { token } = req.query;
+    if (typeof token !== 'string') {
+      return res.status(400).json({ success: false, message: "Token is required" });
+    }
+
+    const result = await userService.verifyEmail(token);
+    return res.status(200).json(result)
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+export const resendVerificationEmail = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ success: false, message: "Email required" });
+
+    const result = await userService.resendVerification(email);
+    res.status(200).json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+export const requestPasswordReset = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ success: false, message: "Email is required" });
+
+    const result = await userService.requestPasswordReset(email);
+    res.status(200).json(result); // always 200 to avoid enumeration
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+export const resetPassword = async (req: Request, res: Response) => {
+  try {
+    const { token, newPassword } = req.body;
+    if (!token || !newPassword) {
+      return res.status(400).json({ success: false, message: "Token and new password required" });
+    }
+
+    const result = await userService.resetPassword(token, newPassword);
+    res.status(result.success ? 200 : 400).json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
 export const getAllUsers = async (req: Request, res: Response) => {
   try {
     const users = await userService.getAllUsers();

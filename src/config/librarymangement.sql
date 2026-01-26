@@ -107,3 +107,11 @@ INSERT INTO Comments (user_id, book_id, rating, comment) VALUES
  'Very insightful book!');
 
  SELECT * FROM Comments;
+
+-- ALTER TABLE users
+   -- ADD COLUMN is_verified       BOOLEAN         NOT NULL DEFAULT FALSE,
+    --ADD COLUMN verification_token VARCHAR(100),
+    --ADD COLUMN verification_expires TIMESTAMP WITH TIME ZONE,
+
+    --ADD COLUMN reset_token       VARCHAR(100),
+    --ADD COLUMN reset_expires     TIMESTAMP WITH TIME ZONE;

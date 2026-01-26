@@ -45,7 +45,6 @@ app.get("/", (req, res) => {
 })
 
 app.get("/", (req, res) => {res.send("Hello, the express server is running")})
-//load routes
 
 const port = 3000
 app.listen(port, () => {

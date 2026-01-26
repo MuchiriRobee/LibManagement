@@ -10,6 +10,10 @@ const userRouter = Router();
 // Public routes
 userRouter.post("/users/login", validateLoginUser, userController.userLogin);
 userRouter.post("/users/register", validateUser, userController.createUser);
+userRouter.get("/users/verify-email", userController.verifyEmail);           // ?token=...
+userRouter.post("/users/resend-verification", userController.resendVerificationEmail);
+userRouter.post("/users/forgot-password", userController.requestPasswordReset);
+userRouter.post("/users/reset-password", userController.resetPassword);
 
 // Protected + Admin only
 userRouter.get("/users/count", isAuthenticated, authorize, userController.getUsersCount);

@@ -5,6 +5,7 @@ export interface User{
     password:string,
     password_hash?:string,
     role: 'Admin' | 'Member',
+    is_verified?: boolean,
     created_at?: Date,
     updated_at?: Date
 }
